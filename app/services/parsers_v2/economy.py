@@ -19,10 +19,10 @@ class EconomyParserV2:
     # ENHANCED: Agora captura coordenadas se disponíveis
     REGEX_PURCHASE = re.compile(
         r"(?P<timestamp>[\d\.-]+): \[Trade\] Tradeable \((?P<item>.*?) \(x(?P<count>\d+)\)\) "
-        r"purchased by (?P<name>.*?)\((?P<steam_id>\d+)\) for (?P<price>\d+) money from trader (?P<trader>.*?)"
-        r"(?:, old amount.*: (?P<stock_old>[\d-]+), new amount.*: (?P<stock_new>[\d-]+))?"
-        r"(?:.*users online: (?P<users>\d+))?"
-        r"(?:.*at X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+))?"
+        r"purchased by (?P<name>.*?)\((?P<steam_id>\d+)\) for (?P<price>\d+) money from trader (?P<trader>.+?)"
+        r"(?:, old amount.*?: (?P<stock_old>[\d-]+), new amount.*?: (?P<stock_new>[\d-]+))?"
+        r"(?:, users online: (?P<users>\d+))?"
+        r"(?: at X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+))?$"
     )
     
     # SELL FORMAT: Tradeable (Item (health: X, uses: Y)) sold by Player(ID) for 100 (X + Y worth of contained items)
@@ -31,17 +31,17 @@ class EconomyParserV2:
         r"(?P<timestamp>[\d\.-]+): \[Trade\] Tradeable \((?P<item>.*?)"
         r"(?: \(health: (?P<health>[\d\.]+)(?:, uses: (?P<uses>\d+))?\))?\) "
         r"sold by (?P<name>.*?)\((?P<steam_id>\d+)\) for (?P<price>\d+) "
-        r"\((?P<base_price>\d+) \+ (?P<items_price>\d+) worth of contained items\) to trader (?P<trader>.*?)"
-        r"(?:, old amount.*: (?P<stock_old>[\d-]+), new amount.*: (?P<stock_new>[\d-]+))?"
-        r"(?:.*users online: (?P<users>\d+))?"
-        r"(?:.*at X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+))?"
+        r"\((?P<base_price>\d+) \+ (?P<items_price>\d+) worth of contained items\) to trader (?P<trader>.+?)"
+        r"(?:, old amount.*?: (?P<stock_old>[\d-]+), new amount.*?: (?P<stock_new>[\d-]+))?"
+        r"(?:, users online: (?P<users>\d+))?"
+        r"(?: at X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+))?$"
     )
 
     # ========================================================================
     # BALANCE PATTERNS - Snapshots de Saldo
     # ========================================================================
     REGEX_BALANCE = re.compile(
-        r"(?P<timestamp>[\d\.-]+): \[Trade\] (?P<context>Before|After).*?trader (?P<trader>.*?), "
+        r"(?P<timestamp>[\d\.-]+): \[Trade\] (?P<context>Before|After).*?trader (?P<trader>.+?), "
         r"player (?P<name>.*?)\((?P<steam_id>\d+)\) (?:has|had) "
         r"(?P<cash>[\d\.]+) cash, (?P<bank>[\d\.]+) (?:bank )?account balance and (?P<gold>[\d\.]+) gold"
         r".*trader (?:has|had) (?P<funds>[\d\.]+) funds"
@@ -73,8 +73,8 @@ class EconomyParserV2:
     # ========================================================================
     REGEX_MECHANIC = re.compile(
         r"(?P<timestamp>[\d\.-]+): \[Trade-Mechanic\] Service \((?P<service>Buy|Install|Repair|Remove) attachment (?P<item>.*?)\) "
-        r"purchased by (?P<name>.*?)\((?P<steam_id>\d+)\) for (?P<price>\d+) money from trader (?P<trader>.*?)"
-        r"(?:.*at X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+))?"
+        r"purchased by (?P<name>.*?)\((?P<steam_id>\d+)\) for (?P<price>\d+) money from trader (?P<trader>.+?)"
+        r"(?: at X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+))?$"
     )
     
     # ========================================================================
