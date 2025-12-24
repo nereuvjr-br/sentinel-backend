@@ -1,0 +1,26 @@
+# --- Core API & Server ---
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+
+# --- Database & ORM ---
+sqlmodel>=0.0.16
+# Driver Async para PostgreSQL (Alta performance)
+asyncpg>=0.29.0
+# Driver Sync (Utilizado pelo Alembic/Migrations)
+psycopg2-binary>=2.9.9
+alembic>=1.13.1
+
+# --- Settings & Env ---
+python-dotenv>=1.0.1
+pydantic-settings>=2.2.1
+
+# --- Log Ingestion & SFTP ---
+paramiko>=3.4.0
+
+# --- Security (JWT & Auth) ---
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# --- Async HTTP (Webhooks) ---
+httpx>=0.27.0

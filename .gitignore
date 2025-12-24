@@ -1,0 +1,25 @@
+# Genérico Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ambientes Virtuais
+venv/
+env/
+.venv/
+
+# Variáveis de Ambiente e Segredos
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# IDEs
+.vscode/
+.idea/
+
+# Outros
+.DS_Store
