@@ -4,7 +4,14 @@ from app.models.admin_v2 import SentinelAdminCommand
 from app.models.chat_v2 import SentinelChatMessage
 from app.models.login_v2 import SentinelLogin
 from app.models.kill_v2 import SentinelKill
-from app.models.economy_v2 import SentinelEconomyTrade, SentinelEconomyBalance
+from app.models.economy_v2 import (
+    SentinelEconomyTrade, 
+    SentinelEconomyBalance,
+    SentinelBankTransaction,
+    SentinelMechanicService,
+    SentinelBankCard,
+    SentinelUnparsedLog
+)
 from app.models.gameplay_v2 import SentinelRaidMinigame, SentinelCrafting, SentinelExplosiveEvent, SentinelBunkerEvent
 from app.models.violation_v2 import SentinelViolation
 from app.models.chest_fame_v2 import SentinelChestEvent, SentinelFameEvent

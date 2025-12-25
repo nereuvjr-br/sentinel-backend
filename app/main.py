@@ -10,8 +10,8 @@ app = FastAPI(
     title="SCUM Sentinel API",
     version="9.2.0",
     description="API de Inteligência de Dados para Servidores SCUM",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None,
+    redoc_url=None,
 )
 
 # --- CORS ---

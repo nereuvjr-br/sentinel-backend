@@ -9,7 +9,7 @@ from app.models.chat_v2 import SentinelChatMessage
 
 router = APIRouter()
 
-@router.get("/", response_model=List[SentinelChatMessage])
+@router.get("", response_model=List[SentinelChatMessage])
 async def get_chat_logs(
     session: AsyncSession = Depends(get_session),
     limit: int = 100,

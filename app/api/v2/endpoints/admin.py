@@ -9,7 +9,7 @@ from app.models.admin_v2 import SentinelAdminCommand
 
 router = APIRouter()
 
-@router.get("/", response_model=List[SentinelAdminCommand])
+@router.get("", response_model=List[SentinelAdminCommand])
 async def get_admin_logs(
     session: AsyncSession = Depends(get_session),
     limit: int = 100,
