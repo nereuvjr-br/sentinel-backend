@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Core Config
 from app.core.config import settings
 from app.core.database import engine
+from app.core.logger import logger
 
 # Models
 from app.models.system_v2 import SentinelProcessedFile
@@ -62,23 +63,22 @@ class SentinelDaemonV2:
                 
                 # Convert to UTC for internal comparison
                 self.wipe_date = dt.astimezone(timezone.utc)
-                print(f"📅 WIPE FILTER ACTIVE: Ignorando dados antes de {self.wipe_date} (Configurado: {settings.WIPE_DATE} {settings.TIMEZONE})")
+                logger.info(f"📅 WIPE FILTER ACTIVE: Ignorando dados antes de {self.wipe_date} (Configurado: {settings.WIPE_DATE} {settings.TIMEZONE})")
             except Exception as e:
-                print(f"⚠️ Erro ao parsear WIPE_DATE: {e}")
+                logger.warning(f"⚠️ Erro ao parsear WIPE_DATE: {e}")
 
     async def run(self):
-        print(f"🚀 Sentinel V2 (Tailing Mode) Iniciado. Monitorando {self.host}...")
+        logger.info(f"🚀 Sentinel V2 (Tailing Mode) Iniciado. Monitorando {self.host}...")
         
         while True:
             try:
                 await self.process_logs()
-                print("💤 Ciclo de Scan concluído. Dormindo 5s...")
+                logger.debug("💤 Ciclo de Scan concluído. Dormindo 5s...")
                 await asyncio.sleep(5)
             except Exception as e:
                 import traceback
                 error_trace = traceback.format_exc()
-                print(f"❌ Erro Crítico no Loop:")
-                print(error_trace)
+                logger.critical(f"❌ Erro Crítico no Loop: {error_trace}")
                 
                 # Save to DB for frontend monitoring
                 try:
@@ -93,41 +93,57 @@ class SentinelDaemonV2:
                         session.add(log)
                         await session.commit()
                 except:
-                    print("Could not save system error to DB.")
+                    logger.error("Could not save system error to DB.")
                 
                 await asyncio.sleep(30)
 
     async def process_logs(self):
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        max_retries = 3
+        retry_delay = 5
         
-        try:
-            ssh.connect(self.host, self.port, self.username, self.password)
-            sftp = ssh.open_sftp()
+        for attempt in range(max_retries):
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             
-            # List with Attributes for size check
-            # sftp.listdir_attr returns SFTPAttributes objects
-            file_attrs = sftp.listdir_attr(self.remote_dir)
-            files = [(f.filename, f.st_size) for f in file_attrs if f.filename.endswith('.log')]
-            files.sort()
+            try:
+                ssh.connect(self.host, self.port, self.username, self.password, timeout=10)
+                sftp = ssh.open_sftp()
+                
+                try:
+                    # List with Attributes for size check
+                    file_attrs = sftp.listdir_attr(self.remote_dir)
+                    files = [(f.filename, f.st_size) for f in file_attrs if f.filename.endswith('.log')]
+                    files.sort()
+                    
+                    async with AsyncSession(engine) as session:
+                        for filename, remote_size in files:
+                            # Check DB state
+                            pf = await self.get_processed_state(session, filename)
+                            local_offset = pf.processed_bytes if pf else 0
+                            
+                            if remote_size > local_offset:
+                                logger.info(f"📂 Tailing {filename} (Size: {remote_size} > Offset: {local_offset})")
+                                await self.ingest_file(session, sftp, filename, local_offset, remote_size)
+                            elif not pf:
+                                # New File case
+                                await self.ingest_file(session, sftp, filename, 0, remote_size)
+                    
+                    # If successful, break retry loop
+                    return
+
+                finally:
+                    try:
+                        sftp.close()
+                    except: pass
             
-            async with AsyncSession(engine) as session:
-                for filename, remote_size in files:
-                    # Check DB state
-                    pf = await self.get_processed_state(session, filename)
-                    local_offset = pf.processed_bytes if pf else 0
-                    
-                    if remote_size > local_offset:
-                        print(f"📂 Tailing {filename} (Size: {remote_size} > Offset: {local_offset})")
-                        await self.ingest_file(session, sftp, filename, local_offset, remote_size)
-                    elif not pf:
-                        # New File case (if size 0?)
-                         await self.ingest_file(session, sftp, filename, 0, remote_size)
-                    else:
-                        pass # print(f"⏭️ Skipping {filename} (Up to date)")
-                    
-        finally:
-            ssh.close()
+            except (paramiko.SSHException, OSError) as e:
+                logger.warning(f"⚠️ SFTP Connection Failed (Attempt {attempt+1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay * (attempt + 1))
+            finally:
+                ssh.close()
+        
+        logger.error("❌ Failed to connect to SFTP after multiple attempts.")
 
     async def get_processed_state(self, session, filename):
         stmt = select(SentinelProcessedFile).where(SentinelProcessedFile.filename == filename)
@@ -161,61 +177,12 @@ class SentinelDaemonV2:
         try:
             with sftp.open(file_path, 'rb') as f:
                 f.seek(offset)
-                content = f.read(current_size - offset) # Read only new content
-                
-            decoded = ""
-            # SCUM logs change encoding.
-            # Warning: Tailing UTF-16 in chunks can be dangerous if we split a character.
-            # But since we read until EOF (current_size), logic normally holds unless a rename/rotation happens mid-read.
-            encodings = ['utf-16le', 'utf-8', 'latin-1']
+                # Read only new content
+                # For very large files, this `read()` might be too much for memory.
+                # ideally we chunk it, but for now we follow the existing pattern for consistency.
+                content = f.read(current_size - offset) 
             
-            for enc in encodings:
-                try:
-                    decoded = content.decode(enc)
-                    break
-                except UnicodeDecodeError:
-                    continue
-            
-            if not decoded:
-                decoded = content.decode('utf-8', errors='replace')
-
-            for line in decoded.splitlines():
-                if not line.strip(): continue
-                model = parser_func(line)
-                if model:
-                    # Preenche filename se for unparsed log
-                    if isinstance(model, SentinelUnparsedLog):
-                        model.filename = filename
-                    
-                    # --- Timezone Normalization & Filtering ---
-                    if not isinstance(model, SentinelUnparsedLog) and hasattr(model, 'timestamp'):
-                        # 1. Normalize to Aware UTC (for logic)
-                        if model.timestamp.tzinfo is None:
-                            model.timestamp = model.timestamp.replace(tzinfo=timezone.utc)
-                        
-                        # Ensure it's in UTC
-                        model.timestamp = model.timestamp.astimezone(timezone.utc)
-                        
-                        # 2. Wipe Date Filter
-                        if self.wipe_date and model.timestamp < self.wipe_date:
-                            continue
-                            
-                        # 3. Prepare for DB (Strip Timezone -> Naive UTC)
-                        # SQLAlchemy/asyncpg often prefer Naive timestamps for DateTime columns
-                        # to avoid "can't subtract offset-naive" errors during parameter binding/adaptation.
-                        model.timestamp = model.timestamp.replace(tzinfo=None)
-                        
-                    batch.append(model)
-                    new_lines_count += 1
-                
-                if len(batch) >= self.batch_size:
-                    session.add_all(batch)
-                    await session.commit()
-                    batch = []
-            
-            if batch:
-                session.add_all(batch)
-                await session.commit()
+            new_lines_count = await self._process_content(session, content, filename, parser_func, log_type)
 
             # Update State with NEW TOTAL SIZE
             # We use merge to insert or update
@@ -229,13 +196,12 @@ class SentinelDaemonV2:
             
             session.add(pf)
             await session.commit()
-            print(f"✅ Atualizado {filename}: +{new_lines_count} eventos.")
+            logger.info(f"✅ Atualizado {filename}: +{new_lines_count} eventos.")
 
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
-            print(f"❌ Erro ao Tailing {filename}:")
-            print(error_trace)
+            logger.error(f"❌ Erro ao Tailing {filename}: {error_trace}")
             
             # Rollback transaction to clear error state
             await session.rollback()
@@ -252,7 +218,151 @@ class SentinelDaemonV2:
                 session.add(log)
                 await session.commit()
             except Exception as e2:
-                print(f"Failed to log system error: {e2}")
+                logger.error(f"Failed to log system error: {e2}")
+
+    async def _process_content(self, session, content, filename, parser_func, log_type):
+        decoded = ""
+        # SCUM logs change encoding.
+        encodings = ['utf-16le', 'utf-8', 'latin-1']
+        
+        for enc in encodings:
+            try:
+                decoded = content.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if not decoded:
+            decoded = content.decode('utf-8', errors='replace')
+
+        batch = []
+        new_lines_count = 0
+
+        for line in decoded.splitlines():
+            line_clean = line.strip()
+            if not line_clean: continue
+            
+            model = None
+            try:
+                model = parser_func(line)
+            except Exception as pe:
+                # Log parser crash logic
+                logger.debug(f"Parser Crash on line: {line_clean[:50]}... Error: {pe}")
+                # We could log to UnparsedLog here, but let's assume if it returns nothing it's bad
+            
+            if model:
+                # Preenche filename se for unparsed log
+                if isinstance(model, SentinelUnparsedLog):
+                    model.filename = filename
+                
+                # --- Timezone Normalization & Filtering ---
+                try:
+                    if not isinstance(model, SentinelUnparsedLog) and hasattr(model, 'timestamp'):
+                        # 1. Normalize to Aware UTC (for logic)
+                        if model.timestamp.tzinfo is None:
+                            model.timestamp = model.timestamp.replace(tzinfo=timezone.utc)
+                        
+                        # Ensure it's in UTC
+                        model.timestamp = model.timestamp.astimezone(timezone.utc)
+                        
+                        # 2. Wipe Date Filter
+                        if self.wipe_date and model.timestamp < self.wipe_date:
+                            continue
+                            
+                        # 3. Prepare for DB (Strip Timezone -> Naive UTC)
+                        model.timestamp = model.timestamp.replace(tzinfo=None)
+                    
+                    batch.append(model)
+                    new_lines_count += 1
+                except Exception as te:
+                    logger.error(f"Timezone/Filter Error: {te}")
+                    continue
+            
+            if len(batch) >= self.batch_size:
+                await self._safe_commit_batch(session, batch)
+                batch = []
+        
+        if batch:
+            await self._safe_commit_batch(session, batch)
+            
+        return new_lines_count
+
+    async def _safe_commit_batch(self, session, batch):
+        """Tries to commit a batch. If fails, tries individual items."""
+        if not batch: return
+        
+        try:
+            session.add_all(batch)
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            logger.warning(f"⚠️ Batch Commit Failed ({len(batch)} items). Retrying individually. Error: {e}")
+            
+            for item in batch:
+                try:
+                    session.add(item)
+                    await session.commit()
+                except Exception as ie:
+                    await session.rollback()
+                    # Log failed item (Dead Letter)
+                    logger.error(f"❌ Dropped Bad Item: {item} | Error: {ie}")
+                    # Optionally insert into UnparsedLog table explicitly here
+
+    async def ingest_local_file(self, session, local_path, filename, offset, current_size):
+        log_type = self._determine_log_type(filename)
+        parser_func = self._get_parser_func(filename)
+
+        if not parser_func:
+            return
+
+        try:
+            with open(local_path, 'rb') as f:
+                f.seek(offset)
+                content = f.read(current_size - offset)
+            
+            new_lines_count = await self._process_content(session, content, filename, parser_func, log_type)
+            
+            # Update State same as SFTP
+            pf = await self.get_processed_state(session, filename)
+            if not pf:
+                pf = SentinelProcessedFile(filename=filename, log_type=log_type)
+            
+            pf.processed_bytes = current_size
+            pf.lines_processed += new_lines_count
+            pf.last_modified = datetime.utcnow()
+            
+            session.add(pf)
+            await session.commit()
+            logger.info(f"✅ [LOCAL] Atualizado {filename}: +{new_lines_count} eventos.")
+
+        except Exception as e:
+            logger.error(f"❌ Erro ao processar local {filename}: {e}")
+
+    def _determine_log_type(self, filename):
+        if "admin" in filename: return "Admin"
+        elif "chat" in filename: return "Chat"
+        elif "login" in filename: return "Login"
+        elif "kill" in filename: return "Kill"
+        elif "economy" in filename: return "Economy"
+        elif "gameplay" in filename: return "Gameplay"
+        elif "violations" in filename: return "Violation"
+        elif "chest" in filename: return "Chest"
+        elif "famepoints" in filename: return "Fame"
+        elif "vehicle" in filename: return "Vehicle"
+        return "Unknown"
+
+    def _get_parser_func(self, filename):
+        if "admin" in filename: return AdminParserV2.parse
+        elif "chat" in filename: return ChatParserV2.parse
+        elif "login" in filename: return LoginParserV2.parse
+        elif "kill" in filename: return KillParserV2.parse
+        elif "economy" in filename: return EconomyParserV2.parse
+        elif "gameplay" in filename: return GameplayParserV2.parse
+        elif "violations" in filename: return ViolationParserV2.parse
+        elif "chest" in filename: return ChestFameParserV2.parse_chest
+        elif "famepoints" in filename: return ChestFameParserV2.parse_fame
+        elif "vehicle" in filename: return lambda x: None
+        return None
 
 if __name__ == "__main__":
     daemon = SentinelDaemonV2()

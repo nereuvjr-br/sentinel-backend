@@ -3,12 +3,14 @@ from datetime import datetime
 from typing import Optional
 from app.models.violation_v2 import SentinelViolation
 
+from app.services.parsers_v2.utils import extract_user_id
+
 class ViolationParserV2:
     # 2025.12.21-19.18.56: [AmmoCountMismatch] Ammo count violation detected: Weapon: Weapon_MK18, PrisonerLocation: X=-420561.062 Y=-11397.580 Z=35108.961, Count: 1, SuspiciousCount: 31, BanCount: 61, User: Dark (101, 76561198449280484), 
-    REGEX_CHEAT = re.compile(r"(?P<timestamp>[\d\.-]+): \[(?P<type>.*?)\] (?P<desc>.*?): (?:Weapon: (?P<wep>.*?), )?(?:PrisonerLocation: (?P<loc>.*?), )?.*SuspiciousCount: (?P<susp>\d+), BanCount: (?P<ban>\d+), User: (?P<name>.*?) \(\d+, (?P<steam_id>\d+)\)")
+    REGEX_CHEAT = re.compile(r"(?P<timestamp>[\d\.-]+): \[(?P<type>.*?)\] (?P<desc>.*?): (?:Weapon: (?P<wep>.*?), )?(?:PrisonerLocation: (?P<loc>.*?), )?.*SuspiciousCount: (?P<susp>\d+), BanCount: (?P<ban>\d+), User: (?P<name>.*?) \(\d+, (?P<steam_id>[\w:]+)\)")
 
     # 2025.12.21-18.05.01: AConZGameMode::KickPlayer: User id: '76561198253286676', Reason: NetErrorUnauthorized
-    REGEX_KICK = re.compile(r"(?P<timestamp>[\d\.-]+): AConZGameMode::KickPlayer: User id: '(?P<steam_id>\d+)', Reason: (?P<reason>.*)")
+    REGEX_KICK = re.compile(r"(?P<timestamp>[\d\.-]+): AConZGameMode::KickPlayer: User id: '(?P<steam_id>[\w:]+)', Reason: (?P<reason>.*)")
 
     @staticmethod
     def parse(line: str) -> Optional[SentinelViolation]:
@@ -35,7 +37,7 @@ class ViolationParserV2:
 
                 return SentinelViolation(
                     timestamp=ViolationParserV2._ts(data["timestamp"]),
-                    steam_id=data["steam_id"],
+                    steam_id=extract_user_id(data["steam_id"]),
                     player_name=data["name"],
                     violation_class=data["type"],
                     description=data["desc"],
@@ -47,13 +49,13 @@ class ViolationParserV2:
             
             # Fallback: Generic Regex for violations without counters (e.g. OutOfInteractionRange)
             # 2025.12.21-00.06.35: [OutOfInteractionRange] ... User: Name (ID, SteamID),
-            REGEX_GENERIC = re.compile(r"(?P<timestamp>[\d\.-]+): \[(?P<type>.*?)\] (?P<desc>.*?): .*?User: (?P<name>.*?) \(\d+, (?P<steam_id>\d+)\)")
+            REGEX_GENERIC = re.compile(r"(?P<timestamp>[\d\.-]+): \[(?P<type>.*?)\] (?P<desc>.*?): .*?User: (?P<name>.*?) \(\d+, (?P<steam_id>[\w:]+)\)")
             match_g = REGEX_GENERIC.search(line)
             if match_g:
                 data = match_g.groupdict()
                 return SentinelViolation(
                     timestamp=ViolationParserV2._ts(data["timestamp"]),
-                    steam_id=data["steam_id"],
+                    steam_id=extract_user_id(data["steam_id"]),
                     player_name=data["name"],
                     violation_class=data["type"],
                     description=data["desc"],
@@ -68,7 +70,7 @@ class ViolationParserV2:
                 data = match_k.groupdict()
                 return SentinelViolation(
                     timestamp=ViolationParserV2._ts(data["timestamp"]),
-                    steam_id=data["steam_id"],
+                    steam_id=extract_user_id(data["steam_id"]),
                     player_name="Unknown (Kick)",
                     violation_class="ServerKick",
                     description=f"Kicked for {data['reason']}",

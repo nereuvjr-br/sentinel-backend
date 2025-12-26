@@ -2,14 +2,14 @@ import re
 import json
 import math
 from datetime import datetime
-from typing import Optional
-from app.models.kill_v2 import SentinelKill
+from app.services.parsers_v2.utils import extract_user_id
 
 class KillParserV2:
     # 2025.12.21-19.18.27: {"Killer":{...}, ...}
     # REGEX para a linha de resumo (Died: ...) que contém a distância oficial
     # Ex: Died: Dark (7656...), Killer: Tsujiro (7656...) ... Distance: 27.02 m]
-    REGEX_SUMMARY = re.compile(r"(?P<timestamp>[\d\.-]+): Died: .*Killer: .*\((?P<killer_id>\d+)\).*Distance: (?P<distance>[\d\.]+) m")
+    # Atualizado para capturar IDs com possíveis prefixos
+    REGEX_SUMMARY = re.compile(r"(?P<timestamp>[\d\.-]+): Died: .*Killer: .*\((?P<killer_id>[\w:]+)\).*Distance: (?P<distance>[\d\.]+) m")
 
     # REGEX para o JSON principal (padrão antigo e novo)
     REGEX_JSON = re.compile(r"(?P<timestamp>[\d\.-]+): (?P<json_data>\{.*\})")
@@ -28,7 +28,7 @@ class KillParserV2:
                 # Store distance with timestamp key to ensure we match the right kill later
                 KillParserV2._last_summary = {
                     "timestamp": summary_match.group("timestamp"),
-                    "killer_id": summary_match.group("killer_id"),
+                    "killer_id": extract_user_id(summary_match.group("killer_id")),
                     "distance": float(summary_match.group("distance"))
                 }
             except:
@@ -48,6 +48,10 @@ class KillParserV2:
             killer = payload.get("Killer", {}) or {}
             victim = payload.get("Victim", {}) or {}
             
+            # Extract IDs safely
+            k_id = extract_user_id(killer.get("UserId"))
+            v_id = extract_user_id(victim.get("UserId"))
+
             # --- Anti-Cheat Calculation (Violation Score) ---
             s_loc = killer.get("ServerLocation")
             c_loc = killer.get("ClientLocation")
@@ -68,7 +72,7 @@ class KillParserV2:
             # Tenta usar a distância oficial capturada na linha anterior
             if (KillParserV2._last_summary and 
                 KillParserV2._last_summary.get("timestamp") == ts_str and
-                KillParserV2._last_summary.get("killer_id") == killer.get("UserId")):
+                KillParserV2._last_summary.get("killer_id") == k_id):
                 
                 final_distance = KillParserV2._last_summary["distance"]
                 # Limpa a memória após uso
@@ -88,13 +92,13 @@ class KillParserV2:
 
             return SentinelKill(
                 timestamp=KillParserV2._ts(ts_str),
-                killer_id=killer.get("UserId"),
+                killer_id=k_id,
                 killer_name=killer.get("ProfileName"),
                 killer_loc_server=s_loc,
                 killer_loc_client=c_loc,
                 killer_immortal=killer.get("HasImmortality", False),
                 
-                victim_id=victim.get("UserId"),
+                victim_id=v_id,
                 victim_name=victim.get("ProfileName"),
                 victim_loc=victim.get("ServerLocation"),
                 

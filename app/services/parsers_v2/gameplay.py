@@ -3,14 +3,16 @@ from datetime import datetime
 from typing import Optional, Union
 from app.models.gameplay_v2 import SentinelRaidMinigame, SentinelCrafting, SentinelExplosiveEvent, SentinelBunkerEvent
 
+from app.services.parsers_v2.utils import extract_user_id
+
 class GameplayParserV2:
     # Existing Regexes
-    REGEX_MINIGAME = re.compile(r"(?P<timestamp>[\d\.-]+): \[LogMinigame\] \[(?P<minigame>.*?)\] User: (?P<atk_name>.*?) \(\d+, (?P<atk_id>\d+)\)\. Success: (?P<success>Yes|No)\. Elapsed time: (?P<time>[\d\.]+)\. Failed attempts: (?P<failed>\d+)\. Target object: (?P<target>.*?)\(ID:.*?(?:Lock type: (?P<lock>.*?)\.)? User owner: (?:\d+\(\[(?P<def_id>\d+)\] (?P<def_name>.*?)\)|N/A).*Location: X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)")
-    REGEX_CRAFTING = re.compile(r"(?P<timestamp>[\d\.-]+): \[LogCrafting\] User: (?P<name>.*?) \(\d+, (?P<steam_id>\d+)\)\. Item: (?P<item>.*?) Count: (?P<count>\d+) Location: X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)")
+    REGEX_MINIGAME = re.compile(r"(?P<timestamp>[\d\.-]+): \[LogMinigame\] \[(?P<minigame>.*?)\] User: (?P<atk_name>.*?) \(\d+, (?P<atk_id>[\w:]+)\)\. Success: (?P<success>Yes|No)\. Elapsed time: (?P<time>[\d\.]+)\. Failed attempts: (?P<failed>\d+)\. Target object: (?P<target>.*?)\(ID:.*?(?:Lock type: (?P<lock>.*?)\.)? User owner: (?:\d+\(\[(?P<def_id>[\w:]+)\] (?P<def_name>.*?)\)|N/A).*Location: X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)")
+    REGEX_CRAFTING = re.compile(r"(?P<timestamp>[\d\.-]+): \[LogCrafting\] User: (?P<name>.*?) \(\d+, (?P<steam_id>[\w:]+)\)\. Item: (?P<item>.*?) Count: (?P<count>\d+) Location: X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)")
 
     # New Regexes
     # 2025.12.21-19.34.02: [LogExplosives] User: Player(123) Action: Armed Item: C4 Location: X=...
-    REGEX_EXPLOSIVES = re.compile(r"(?P<timestamp>[\d\.-]+): \[LogExplosives\] User: (?P<name>.*?) \(\d+, (?P<steam_id>\d+)\) Action: (?P<action>.*?) Item: (?P<item>.*?) Location: X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)")
+    REGEX_EXPLOSIVES = re.compile(r"(?P<timestamp>[\d\.-]+): \[LogExplosives\] User: (?P<name>.*?) \(\d+, (?P<steam_id>[\w:]+)\) Action: (?P<action>.*?) Item: (?P<item>.*?) Location: X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)")
 
     # 2025.12.23-06.01.36: [LogBunkerLock] C4 Bunker is Active. Activated ... X=...
     REGEX_BUNKER = re.compile(r"(?P<timestamp>[\d\.-]+): \[LogBunkerLock\] (?P<bunker>.*?) (?:is|Activated) (?P<status>Active|Locked|Activated).*?(?:X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+))?")
@@ -25,9 +27,9 @@ class GameplayParserV2:
                 data = match.groupdict()
                 return SentinelRaidMinigame(
                     timestamp=GameplayParserV2._ts(data["timestamp"]),
-                    attacker_steam_id=data["atk_id"],
+                    attacker_steam_id=extract_user_id(data["atk_id"]),
                     attacker_name=data["atk_name"],
-                    target_owner_steam_id=data.get("def_id"),
+                    target_owner_steam_id=extract_user_id(data.get("def_id")),
                     target_owner_name=data.get("def_name"),
                     minigame_class=data["minigame"],
                     target_object=data["target"],
@@ -44,7 +46,7 @@ class GameplayParserV2:
                 data = match_c.groupdict()
                 return SentinelCrafting(
                     timestamp=GameplayParserV2._ts(data["timestamp"]),
-                    crafter_steam_id=data["steam_id"],
+                    crafter_steam_id=extract_user_id(data["steam_id"]),
                     crafter_name=data["name"],
                     item_class=data["item"],
                     count=int(data["count"]),
@@ -57,7 +59,7 @@ class GameplayParserV2:
                 data = match_e.groupdict()
                 return SentinelExplosiveEvent(
                     timestamp=GameplayParserV2._ts(data["timestamp"]),
-                    steam_id=data["steam_id"],
+                    steam_id=extract_user_id(data["steam_id"]),
                     player_name=data["name"],
                     action=data["action"],
                     item_class=data["item"],

@@ -10,6 +10,8 @@ from app.models.economy_v2 import (
     SentinelUnparsedLog
 )
 
+from app.services.parsers_v2.utils import extract_user_id
+
 class EconomyParserV2:
     # ========================================================================
     # TRADE PATTERNS - Compras e Vendas
@@ -19,7 +21,7 @@ class EconomyParserV2:
     # ENHANCED: Agora captura coordenadas se disponíveis
     REGEX_PURCHASE = re.compile(
         r"(?P<timestamp>[\d\.-]+): \[Trade\] Tradeable \((?P<item>.*?) \(x(?P<count>\d+)\)\) "
-        r"purchased by (?P<name>.*?)\((?P<steam_id>\d+)\) for (?P<price>\d+) money from trader (?P<trader>.+?)"
+        r"purchased by (?P<name>.*?)\((?P<steam_id>[\w:]+)\) for (?P<price>\d+) money from trader (?P<trader>.+?)"
         r"(?:, old amount.*?: (?P<stock_old>[\d-]+), new amount.*?: (?P<stock_new>[\d-]+))?"
         r"(?:, users online: (?P<users>\d+))?"
         r"(?: at X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+))?$"
@@ -30,7 +32,7 @@ class EconomyParserV2:
     REGEX_SELL = re.compile(
         r"(?P<timestamp>[\d\.-]+): \[Trade\] Tradeable \((?P<item>.*?)"
         r"(?: \(health: (?P<health>[\d\.]+)(?:, uses: (?P<uses>\d+))?\))?\) "
-        r"sold by (?P<name>.*?)\((?P<steam_id>\d+)\) for (?P<price>\d+) "
+        r"sold by (?P<name>.*?)\((?P<steam_id>[\w:]+)\) for (?P<price>\d+) "
         r"\((?P<base_price>\d+) \+ (?P<items_price>\d+) worth of contained items\) to trader (?P<trader>.+?)"
         r"(?:, old amount.*?: (?P<stock_old>[\d-]+), new amount.*?: (?P<stock_new>[\d-]+))?"
         r"(?:, users online: (?P<users>\d+))?"
@@ -42,7 +44,7 @@ class EconomyParserV2:
     # ========================================================================
     REGEX_BALANCE = re.compile(
         r"(?P<timestamp>[\d\.-]+): \[Trade\] (?P<context>Before|After).*?trader (?P<trader>.+?), "
-        r"player (?P<name>.*?)\((?P<steam_id>\d+)\) (?:has|had) "
+        r"player (?P<name>.*?)\((?P<steam_id>[\w:]+)\) (?:has|had) "
         r"(?P<cash>[\d\.]+) cash, (?P<bank>[\d\.]+) (?:bank )?account balance and (?P<gold>[\d\.]+) gold"
         r".*trader (?:has|had) (?P<funds>[\d\.]+) funds"
     )
@@ -53,18 +55,18 @@ class EconomyParserV2:
     
     # Depósitos e Saques
     REGEX_BANK_DEPOSIT_WITHDRAW = re.compile(
-        r"(?P<timestamp>[\d\.-]+): \[Bank\] (?P<name>.*?)\(ID:(?P<steam_id>\d+)\)\(Account Number:(?P<account>\d+)\) "
+        r"(?P<timestamp>[\d\.-]+): \[Bank\] (?P<name>.*?)\(ID:(?P<steam_id>[\w:]+)\)\(Account Number:(?P<account>\d+)\) "
         r"(?P<action>deposited|withdrew) (?P<gross>\d+)\((?P<net>\d+) was (?:added|removed)\) "
-        r"(?:from |to )?Account Number: (?P<account_ref>\d+)\((?P<name_ref>.*?)\)\((?P<steam_ref>\d+)\) "
+        r"(?:from |to )?Account Number: (?P<account_ref>\d+)\((?P<name_ref>.*?)\)\((?P<steam_ref>[\w:]+)\) "
         r"at X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)"
     )
     
     # Transferências entre jogadores
     REGEX_BANK_TRANSFER = re.compile(
-        r"(?P<timestamp>[\d\.-]+): \[Bank\] (?P<name>.*?)\(ID:(?P<steam_id>\d+)\)\(Account Number:(?P<account>\d+)\) "
+        r"(?P<timestamp>[\d\.-]+): \[Bank\] (?P<name>.*?)\(ID:(?P<steam_id>[\w:]+)\)\(Account Number:(?P<account>\d+)\) "
         r"transferred (?P<gross>\d+)\((?P<net>\d+) was removed\) "
         r"from Account Number: (?P<account_from>\d+).*?"
-        r"to Account Number: (?P<account_to>\d+)\((?P<target_name>.*?)\)\((?P<target_id>\d+)\) "
+        r"to Account Number: (?P<account_to>\d+)\((?P<target_name>.*?)\)\((?P<target_id>[\w:]+)\) "
         r"at X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)"
     )
     
@@ -73,7 +75,7 @@ class EconomyParserV2:
     # ========================================================================
     REGEX_MECHANIC = re.compile(
         r"(?P<timestamp>[\d\.-]+): \[Trade-Mechanic\] Service \((?P<service>Buy|Install|Repair|Remove) attachment (?P<item>.*?)\) "
-        r"purchased by (?P<name>.*?)\((?P<steam_id>\d+)\) for (?P<price>\d+) money from trader (?P<trader>.+?)"
+        r"purchased by (?P<name>.*?)\((?P<steam_id>[\w:]+)\) for (?P<price>\d+) money from trader (?P<trader>.+?)"
         r"(?: at X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+))?$"
     )
     
@@ -83,7 +85,7 @@ class EconomyParserV2:
     
     # Compra de Cartão
     REGEX_CARD_PURCHASE = re.compile(
-        r"(?P<timestamp>[\d\.-]+): \[Bank\] (?P<name>.*?)\(ID:(?P<steam_id>\d+)\)\(Account Number:(?P<account>\d+)\) "
+        r"(?P<timestamp>[\d\.-]+): \[Bank\] (?P<name>.*?)\(ID:(?P<steam_id>[\w:]+)\)\(Account Number:(?P<account>\d+)\) "
         r"purchased (?P<card_type>.*? card) \(free renewal: (?P<renewal>yes|no)\), "
         r"new account balance is (?P<balance>\d+) credits, "
         r"at X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)\."
@@ -91,7 +93,7 @@ class EconomyParserV2:
     
     # Destruição de Cartão
     REGEX_CARD_DESTROY = re.compile(
-        r"(?P<timestamp>[\d\.-]+): \[Bank\] (?P<name>.*?)\(ID:(?P<steam_id>\d+)\)\(Account Number:(?P<account>\d+)\) "
+        r"(?P<timestamp>[\d\.-]+): \[Bank\] (?P<name>.*?)\(ID:(?P<steam_id>[\w:]+)\)\(Account Number:(?P<account>\d+)\) "
         r"manually destroyed (?P<card_type>.*? card) belonging to Account Number:(?P<destroyed_account>\d+), "
         r"at X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)\."
     )
@@ -236,7 +238,7 @@ class EconomyParserV2:
         data = match.groupdict()
         return SentinelEconomyTrade(
             timestamp=EconomyParserV2._ts(data["timestamp"]),
-            steam_id=data["steam_id"],
+            steam_id=extract_user_id(data["steam_id"]),
             player_name=data["name"],
             trade_type="Purchase",
             item_class=data["item"],
@@ -261,7 +263,7 @@ class EconomyParserV2:
         
         return SentinelEconomyTrade(
             timestamp=EconomyParserV2._ts(data["timestamp"]),
-            steam_id=data["steam_id"],
+            steam_id=extract_user_id(data["steam_id"]),
             player_name=data["name"],
             trade_type="Sell",
             item_class=data["item"],
@@ -287,7 +289,7 @@ class EconomyParserV2:
         data = match.groupdict()
         return SentinelEconomyBalance(
             timestamp=EconomyParserV2._ts(data["timestamp"]),
-            steam_id=data["steam_id"],
+            steam_id=extract_user_id(data["steam_id"]),
             player_name=data["name"],
             trigger_event=data["context"],
             trader_name=data["trader"],
@@ -309,7 +311,7 @@ class EconomyParserV2:
         
         return SentinelBankTransaction(
             timestamp=EconomyParserV2._ts(data["timestamp"]),
-            steam_id=data["steam_id"],
+            steam_id=extract_user_id(data["steam_id"]),
             player_name=data["name"],
             account_number=data["account"],
             transaction_type=data["action"],  # "deposited" or "withdrew"
@@ -333,7 +335,7 @@ class EconomyParserV2:
         
         return SentinelBankTransaction(
             timestamp=EconomyParserV2._ts(data["timestamp"]),
-            steam_id=data["steam_id"],
+            steam_id=extract_user_id(data["steam_id"]),
             player_name=data["name"],
             account_number=data["account_from"],
             transaction_type="transfer",
@@ -342,7 +344,7 @@ class EconomyParserV2:
             fee=abs(gross - net) if gross != net else None,
             target_account=data["account_to"],
             target_name=data["target_name"],
-            target_steam_id=data["target_id"],
+            target_steam_id=extract_user_id(data["target_id"]),
             pos_x=float(data["x"]),
             pos_y=float(data["y"]),
             pos_z=float(data["z"])
@@ -357,7 +359,7 @@ class EconomyParserV2:
         data = match.groupdict()
         return SentinelMechanicService(
             timestamp=EconomyParserV2._ts(data["timestamp"]),
-            steam_id=data["steam_id"],
+            steam_id=extract_user_id(data["steam_id"]),
             player_name=data["name"],
             service_type=data["service"],
             item_class=data["item"],
@@ -377,7 +379,7 @@ class EconomyParserV2:
         data = match.groupdict()
         return SentinelBankCard(
             timestamp=EconomyParserV2._ts(data["timestamp"]),
-            steam_id=data["steam_id"],
+            steam_id=extract_user_id(data["steam_id"]),
             player_name=data["name"],
             account_number=data["account"],
             action="purchased",
@@ -398,7 +400,7 @@ class EconomyParserV2:
         data = match.groupdict()
         return SentinelBankCard(
             timestamp=EconomyParserV2._ts(data["timestamp"]),
-            steam_id=data["steam_id"],
+            steam_id=extract_user_id(data["steam_id"]),
             player_name=data["name"],
             account_number=data["account"],
             action="manually destroyed",

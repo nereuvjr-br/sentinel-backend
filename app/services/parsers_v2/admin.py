@@ -3,13 +3,16 @@ from datetime import datetime
 from typing import Optional
 from app.models.admin_v2 import SentinelAdminCommand
 
+from app.services.parsers_v2.utils import extract_user_id
+
 class AdminParserV2:
     # 1. Base Log Pattern
     # 2025.12.21-18.06.15: '76561199817469068:BOT_Oblivion(21)' Command: 'teleport 0 0 0'
-    REGEX_BASE = re.compile(r"(?P<timestamp>[\d\.-]+): '(?P<steam_id>\d+):(?P<name>.*?)\((?P<game_id>\d+)\)' Command: '(?P<command>.*)'")
+    # Updated to capture raw id
+    REGEX_BASE = re.compile(r"(?P<timestamp>[\d\.-]+): '(?P<steam_id>[\w:]+):(?P<name>.*?)\((?P<game_id>\d+)\)' Command: '(?P<command>.*)'")
     
     # 2. Map Teleport Pattern (Specific Variation)
-    REGEX_MAP_TP = re.compile(r"(?P<timestamp>[\d\.-]+): '(?P<steam_id>\d+):(?P<name>.*?)\((?P<game_id>\d+)\)' Used map click teleport to player: '(?P<target_raw>.*)' Location: X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)")
+    REGEX_MAP_TP = re.compile(r"(?P<timestamp>[\d\.-]+): '(?P<steam_id>[\w:]+):(?P<name>.*?)\((?P<game_id>\d+)\)' Used map click teleport to player: '(?P<target_raw>.*)' Location: X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)")
 
     # 3. Argument Extractors (Inside Command String)
     # SpawnItem Weapon_MK18 1 Location "-409464.75 ... 37995.668" AmmoCount 30
@@ -30,7 +33,7 @@ class AdminParserV2:
             data = match_tp.groupdict()
             return SentinelAdminCommand(
                 timestamp=AdminParserV2._ts(data["timestamp"]),
-                admin_steam_id=data["steam_id"],
+                admin_steam_id=extract_user_id(data["steam_id"]),
                 admin_name=data["name"],
                 admin_game_id=data["game_id"],
                 raw_command=f"MapTeleport > {data['target_raw']}",
@@ -56,7 +59,7 @@ class AdminParserV2:
         # Prepara objeto base
         model = SentinelAdminCommand(
             timestamp=AdminParserV2._ts(data["timestamp"]),
-            admin_steam_id=data["steam_id"],
+            admin_steam_id=extract_user_id(data["steam_id"]),
             admin_name=data["name"],
             admin_game_id=data["game_id"],
             raw_command=cmd_full,

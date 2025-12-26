@@ -3,10 +3,12 @@ from datetime import datetime
 from typing import Optional
 from app.models.login_v2 import SentinelLogin
 
+from app.services.parsers_v2.utils import extract_user_id
+
 class LoginParserV2:
     # 2025.12.21-16.05.29: '...' logged in at: X=... Y=... Z=...
     # 2025.12.21-00.01.31: '...' logged out at: ?
-    REGEX_LOGIN = re.compile(r"(?P<timestamp>[\d\.-]+): '(?P<ip>[\d\.]+) (?P<steam_id>\d+):(?P<name>.*?)\((?P<game_id>\d+)\)' (?P<action>logged in|logged out) at: (?:X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)|\?)(?P<extra>.*)")
+    REGEX_LOGIN = re.compile(r"(?P<timestamp>[\d\.-]+): '(?P<ip>[\d\.]+) (?P<steam_id>[\w:]+):(?P<name>.*?)\((?P<game_id>\d+)\)' (?P<action>logged in|logged out) at: (?:X=(?P<x>[\d\.-]+) Y=(?P<y>[\d\.-]+) Z=(?P<z>[\d\.-]+)|\?)(?P<extra>.*)")
 
     @staticmethod
     def parse(line: str) -> Optional[SentinelLogin]:
@@ -38,7 +40,7 @@ class LoginParserV2:
         return SentinelLogin(
             timestamp=LoginParserV2._ts(data["timestamp"]),
             ip_address=data["ip"],
-            steam_id=data["steam_id"],
+            steam_id=extract_user_id(data["steam_id"]),
             player_name=data["name"],
             game_id=int(data["game_id"]),
             action=action_map.get(data["action"], "Unknown"),
