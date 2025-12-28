@@ -27,6 +27,15 @@ class Settings(BaseSettings):
     # Webhooks
     DISCORD_WEBHOOK_ALERTS: Optional[str] = None
     DISCORD_WEBHOOK_KILLFEED: Optional[str] = None
+    
+    # Business Logic
+    EXCLUDED_ITEMS: str = ""
+
+    @property
+    def excluded_items_list(self) -> list[str]:
+        if not self.EXCLUDED_ITEMS:
+            return []
+        return [item.strip() for item in self.EXCLUDED_ITEMS.split(",") if item.strip()]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

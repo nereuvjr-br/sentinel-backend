@@ -28,6 +28,7 @@ from app.models.economy_v2 import (
 from app.models.gameplay_v2 import SentinelRaidMinigame, SentinelCrafting
 from app.models.violation_v2 import SentinelViolation
 from app.models.chest_fame_v2 import SentinelChestEvent, SentinelFameEvent
+from app.models.vehicle_v2 import SentinelVehicle
 
 # Parsers
 from app.services.parsers_v2.admin import AdminParserV2
@@ -38,6 +39,10 @@ from app.services.parsers_v2.economy import EconomyParserV2
 from app.services.parsers_v2.gameplay import GameplayParserV2
 from app.services.parsers_v2.violation import ViolationParserV2
 from app.services.parsers_v2.chest_fame import ChestFameParserV2
+from app.services.parsers_v2.vehicle import VehicleParserV2
+
+# Monitoring
+from app.services.monitoring_service import monitoring_service
 
 class SentinelDaemonV2:
     def __init__(self):
@@ -70,6 +75,9 @@ class SentinelDaemonV2:
     async def run(self):
         logger.info(f"🚀 Sentinel V2 (Tailing Mode) Iniciado. Monitorando {self.host}...")
         
+        # Iniciar task de health check em paralelo
+        health_check_task = asyncio.create_task(self._periodic_health_check())
+        
         while True:
             try:
                 await self.process_logs()
@@ -96,6 +104,27 @@ class SentinelDaemonV2:
                     logger.error("Could not save system error to DB.")
                 
                 await asyncio.sleep(30)
+    
+    async def _periodic_health_check(self):
+        """
+        Task periódica que captura snapshots de saúde do banco a cada 5 minutos.
+        """
+        logger.info("🏥 Health Check Task iniciada (intervalo: 5 minutos)")
+        
+        while True:
+            try:
+                await asyncio.sleep(300)  # 5 minutos
+                
+                async with AsyncSession(engine) as session:
+                    snapshot = await monitoring_service.capture_database_health_snapshot(session)
+                    
+                    if not snapshot.is_healthy:
+                        logger.warning(f"⚠️ Problemas de saúde detectados: {snapshot.health_issues}")
+                    else:
+                        logger.info("✅ Sistema saudável")
+                        
+            except Exception as e:
+                logger.error(f"Erro no Health Check: {e}")
 
     async def process_logs(self):
         max_retries = 3
@@ -163,29 +192,36 @@ class SentinelDaemonV2:
         elif "kill" in filename: parser_func = KillParserV2.parse; log_type="Kill"
         elif "economy" in filename: parser_func = EconomyParserV2.parse; log_type="Economy"
         elif "gameplay" in filename: parser_func = GameplayParserV2.parse; log_type="Gameplay"
-        elif "violations" in filename: parser_func = ViolationParserV2.parse; log_type="Violation"
+        elif "violation" in filename: parser_func = ViolationParserV2.parse; log_type="Violation"
         elif "chest" in filename: parser_func = ChestFameParserV2.parse_chest; log_type="Chest"
         elif "famepoints" in filename: parser_func = ChestFameParserV2.parse_fame; log_type="Fame"
-        elif "vehicle" in filename: parser_func = lambda x: None; log_type="Vehicle" # Placeholder
+        elif "vehicle" in filename: parser_func = VehicleParserV2.parse; log_type="Vehicle"
 
         if not parser_func:
             return
 
-        batch = []
+        # Rastreamento de performance
+        import time
+        start_time = time.time()
+        bytes_processed = current_size - offset
+        lines_success = 0
+        lines_failed = 0
         new_lines_count = 0
+        status = "success"
+        error_message = None
         
         try:
             with sftp.open(file_path, 'rb') as f:
                 f.seek(offset)
-                # Read only new content
-                # For very large files, this `read()` might be too much for memory.
-                # ideally we chunk it, but for now we follow the existing pattern for consistency.
                 content = f.read(current_size - offset) 
             
-            new_lines_count = await self._process_content(session, content, filename, parser_func, log_type)
+            # Processar conteúdo e rastrear métricas
+            result = await self._process_content(session, content, filename, parser_func, log_type)
+            new_lines_count = result['lines_processed']
+            lines_success = result['lines_success']
+            lines_failed = result['lines_failed']
 
             # Update State with NEW TOTAL SIZE
-            # We use merge to insert or update
             pf = await self.get_processed_state(session, filename)
             if not pf:
                 pf = SentinelProcessedFile(filename=filename, log_type=log_type)
@@ -203,6 +239,9 @@ class SentinelDaemonV2:
             error_trace = traceback.format_exc()
             logger.error(f"❌ Erro ao Tailing {filename}: {error_trace}")
             
+            status = "failed"
+            error_message = str(e)
+            
             # Rollback transaction to clear error state
             await session.rollback()
             
@@ -219,6 +258,43 @@ class SentinelDaemonV2:
                 await session.commit()
             except Exception as e2:
                 logger.error(f"Failed to log system error: {e2}")
+        
+        finally:
+            # Calcular tempo de processamento
+            processing_time_ms = (time.time() - start_time) * 1000
+            
+            # Registrar métricas do parser
+            try:
+                await monitoring_service.update_parser_metrics(
+                    session=session,
+                    parser_name=log_type,
+                    lines_processed=new_lines_count,
+                    lines_success=lines_success,
+                    lines_failed=lines_failed,
+                    processing_time_ms=processing_time_ms,
+                    last_error=error_message
+                )
+            except Exception as me:
+                logger.error(f"Erro ao atualizar métricas: {me}")
+            
+            # Registrar log de ingestão
+            try:
+                await monitoring_service.log_ingestion_cycle(
+                    session=session,
+                    filename=filename,
+                    log_type=log_type,
+                    bytes_processed=bytes_processed,
+                    lines_processed=new_lines_count,
+                    lines_success=lines_success,
+                    lines_failed=lines_failed,
+                    processing_time_ms=processing_time_ms,
+                    offset_start=offset,
+                    offset_end=current_size,
+                    status=status,
+                    error_message=error_message
+                )
+            except Exception as le:
+                logger.error(f"Erro ao registrar log de ingestão: {le}")
 
     async def _process_content(self, session, content, filename, parser_func, log_type):
         decoded = ""
@@ -237,23 +313,32 @@ class SentinelDaemonV2:
 
         batch = []
         new_lines_count = 0
+        lines_success = 0
+        lines_failed = 0
 
         for line in decoded.splitlines():
             line_clean = line.strip()
             if not line_clean: continue
             
             model = None
+            parse_success = False
+            
             try:
                 model = parser_func(line)
+                parse_success = True
             except Exception as pe:
                 # Log parser crash logic
                 logger.debug(f"Parser Crash on line: {line_clean[:50]}... Error: {pe}")
+                lines_failed += 1
                 # We could log to UnparsedLog here, but let's assume if it returns nothing it's bad
             
             if model:
                 # Preenche filename se for unparsed log
                 if isinstance(model, SentinelUnparsedLog):
                     model.filename = filename
+                    lines_failed += 1  # UnparsedLog conta como falha
+                else:
+                    lines_success += 1  # Parse bem-sucedido
                 
                 # --- Timezone Normalization & Filtering ---
                 try:
@@ -276,7 +361,12 @@ class SentinelDaemonV2:
                     new_lines_count += 1
                 except Exception as te:
                     logger.error(f"Timezone/Filter Error: {te}")
+                    lines_failed += 1
                     continue
+            elif parse_success:
+                # Parser retornou None (linha ignorada intencionalmente)
+                # Não conta como falha
+                pass
             
             if len(batch) >= self.batch_size:
                 await self._safe_commit_batch(session, batch)
@@ -285,7 +375,11 @@ class SentinelDaemonV2:
         if batch:
             await self._safe_commit_batch(session, batch)
             
-        return new_lines_count
+        return {
+            'lines_processed': new_lines_count,
+            'lines_success': lines_success,
+            'lines_failed': lines_failed
+        }
 
     async def _safe_commit_batch(self, session, batch):
         """Tries to commit a batch. If fails, tries individual items."""
@@ -345,7 +439,7 @@ class SentinelDaemonV2:
         elif "kill" in filename: return "Kill"
         elif "economy" in filename: return "Economy"
         elif "gameplay" in filename: return "Gameplay"
-        elif "violations" in filename: return "Violation"
+        elif "violation" in filename: return "Violation"
         elif "chest" in filename: return "Chest"
         elif "famepoints" in filename: return "Fame"
         elif "vehicle" in filename: return "Vehicle"
@@ -358,10 +452,10 @@ class SentinelDaemonV2:
         elif "kill" in filename: return KillParserV2.parse
         elif "economy" in filename: return EconomyParserV2.parse
         elif "gameplay" in filename: return GameplayParserV2.parse
-        elif "violations" in filename: return ViolationParserV2.parse
+        elif "violation" in filename: return ViolationParserV2.parse
         elif "chest" in filename: return ChestFameParserV2.parse_chest
         elif "famepoints" in filename: return ChestFameParserV2.parse_fame
-        elif "vehicle" in filename: return lambda x: None
+        elif "vehicle" in filename: return VehicleParserV2.parse
         return None
 
 if __name__ == "__main__":

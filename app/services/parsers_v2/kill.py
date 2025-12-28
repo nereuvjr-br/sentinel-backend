@@ -2,6 +2,8 @@ import re
 import json
 import math
 from datetime import datetime
+from typing import Optional
+from app.models.kill_v2 import SentinelKill
 from app.services.parsers_v2.utils import extract_user_id
 
 class KillParserV2:
@@ -16,6 +18,142 @@ class KillParserV2:
 
     # Mémoria temporária para guardar o resumo da linha anterior
     _last_summary: Optional[dict] = None
+    
+    # ========================================================================
+    # WEAPON CATEGORIZATION
+    # ========================================================================
+    WEAPON_CATEGORIES = {
+        'Weapon_AKS_74U': 'Assault Rifle',
+        'Weapon_AK47': 'Assault Rifle',
+        'Weapon_AK74': 'Assault Rifle',
+        'Weapon_M4A1': 'Assault Rifle',
+        'Weapon_M16A4': 'Assault Rifle',
+        'Weapon_AS_Val': 'Assault Rifle',
+        'Weapon_SCAR': 'Assault Rifle',
+        
+        'Weapon_MP5': 'SMG',
+        'Weapon_MAC10': 'SMG',
+        'Weapon_UZI': 'SMG',
+        'Weapon_TommyGun': 'SMG',
+        
+        'Weapon_SVD': 'Sniper Rifle',
+        'Weapon_MosinNagant': 'Sniper Rifle',
+        'Weapon_M82A1': 'Sniper Rifle',
+        'Weapon_VSS': 'Sniper Rifle',
+        'Weapon_KAR98': 'Sniper Rifle',
+        
+        'Weapon_Glock': 'Pistol',
+        'Weapon_DEagle': 'Pistol',
+        'Weapon_M9': 'Pistol',
+        'Weapon_CZ75': 'Pistol',
+        'Weapon_Block21': 'Pistol',
+        
+        'Weapon_Shotgun': 'Shotgun',
+        'Weapon_SPAS': 'Shotgun',
+        
+        '1H_': 'Melee',
+        '2H_': 'Melee',
+        'Knife': 'Melee',
+        'Axe': 'Melee',
+        'Machete': 'Melee',
+        
+        'C4': 'Explosive',
+        'Grenade': 'Explosive',
+        'Mine': 'Explosive',
+        'RPG': 'Explosive',
+        
+        'Vehicle': 'Vehicle',
+        'Car': 'Vehicle',
+        'Heli': 'Vehicle',
+    }
+    
+    # ========================================================================
+    # HELPER FUNCTIONS
+    # ========================================================================
+    
+    @staticmethod
+    def parse_weapon(weapon_str: str) -> tuple:
+        """
+        Parse weapon string into class, damage type, and category
+        Ex: "Weapon_AKS_74U_C [Projectile]" -> ("Weapon_AKS_74U_C", "Projectile", "Assault Rifle")
+        """
+        if not weapon_str:
+            return "Unknown", "Unknown", "Other"
+        
+        # Extract weapon class and damage type
+        match = re.match(r'(.+?)\s*\[(.+?)\]', weapon_str)
+        if match:
+            weapon_class = match.group(1).strip()
+            damage_type = match.group(2).strip()
+        else:
+            weapon_class = weapon_str
+            damage_type = "Unknown"
+        
+        # Determine category
+        weapon_category = KillParserV2._get_weapon_category(weapon_class)
+        
+        return weapon_class, damage_type, weapon_category
+    
+    @staticmethod
+    def _get_weapon_category(weapon_class: str) -> str:
+        """Get weapon category from weapon class"""
+        for key, category in KillParserV2.WEAPON_CATEGORIES.items():
+            if key in weapon_class:
+                return category
+        
+        # Fallback detection
+        if 'Fall' in weapon_class or 'Drown' in weapon_class:
+            return 'Environment'
+        if 'BP_' in weapon_class or 'Guard' in weapon_class:
+            return 'NPC'
+        
+        return 'Other'
+    
+    @staticmethod
+    def is_npc(name: str, user_id: str) -> tuple:
+        """
+        Detect if player is NPC and return (is_npc, npc_type)
+        """
+        if not name:
+            return False, None
+        
+        npc_patterns = {
+            'BP_Guard': 'Guard',
+            'BP_Puppet': 'Puppet',
+            'BP_Mech': 'Mech',
+            'BP_Animal': 'Animal',
+            'BOT_': 'Bot',
+        }
+        
+        for pattern, npc_type in npc_patterns.items():
+            if pattern in name:
+                return True, npc_type
+        
+        # SteamID inválido também indica NPC
+        if not user_id or len(str(user_id)) < 10:
+            return True, 'Unknown'
+        
+        return False, None
+    
+    @staticmethod
+    def calculate_grid(location: dict, grid_size: int = 1000000) -> tuple:
+        """
+        Calculate grid coordinates for hotspot analysis
+        Default grid size: 1,000,000 cm = 10km
+        """
+        if not location:
+            return None, None
+        
+        try:
+            x = float(location.get('X', 0))
+            y = float(location.get('Y', 0))
+            
+            grid_x = int(x / grid_size)
+            grid_y = int(y / grid_size)
+            
+            return grid_x, grid_y
+        except:
+            return None, None
 
     @staticmethod
     def parse(line: str) -> Optional[SentinelKill]:
@@ -89,22 +227,48 @@ class KillParserV2:
                          final_distance = math.sqrt(dx*dx + dy*dy + dz*dz) / 100.0
                 except:
                     pass
+            
+            # --- NEW: Parse Weapon Details ---
+            weapon_full = payload.get("Weapon", "Unknown")
+            weapon_class, damage_type, weapon_category = KillParserV2.parse_weapon(weapon_full)
+            
+            # --- NEW: Detect NPCs ---
+            killer_name = killer.get("ProfileName")
+            victim_name = victim.get("ProfileName")
+            
+            killer_is_npc, killer_npc_type = KillParserV2.is_npc(killer_name, k_id)
+            victim_is_npc, victim_npc_type = KillParserV2.is_npc(victim_name, v_id)
+            
+            # --- NEW: Calculate Grid ---
+            grid_x, grid_y = KillParserV2.calculate_grid(s_loc)
 
             return SentinelKill(
                 timestamp=KillParserV2._ts(ts_str),
                 killer_id=k_id,
-                killer_name=killer.get("ProfileName"),
+                killer_name=killer_name,
                 killer_loc_server=s_loc,
                 killer_loc_client=c_loc,
                 killer_immortal=killer.get("HasImmortality", False),
                 
                 victim_id=v_id,
-                victim_name=victim.get("ProfileName"),
+                victim_name=victim_name,
                 victim_loc=victim.get("ServerLocation"),
                 
-                weapon=payload.get("Weapon", "Unknown"),
+                weapon=weapon_full,
+                weapon_class=weapon_class,
+                damage_type=damage_type,
+                weapon_category=weapon_category,
+                
                 distance=final_distance,
                 is_event=killer.get("IsInGameEvent", False),
+                
+                killer_is_npc=killer_is_npc,
+                killer_npc_type=killer_npc_type,
+                victim_is_npc=victim_is_npc,
+                victim_npc_type=victim_npc_type,
+                
+                grid_x=grid_x,
+                grid_y=grid_y,
                 
                 time_of_day=payload.get("TimeOfDay"),
                 violation_score=score

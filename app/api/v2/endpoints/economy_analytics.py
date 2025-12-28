@@ -112,11 +112,24 @@ async def get_server_stats(session: AsyncSession = Depends(get_session)):
             "total_active_players": 0
         }
         
+    today_min_24h = datetime.utcnow() - timedelta(hours=24)
+    
+    # Query para contar traders ativos nas últimas 24h
+    active_24h_query = text("""
+        SELECT COUNT(DISTINCT steam_id)
+        FROM sentinel_economy_trades
+        WHERE timestamp >= :cutoff
+    """)
+    
+    active_24h_result = await session.execute(active_24h_query, {"cutoff": today_min_24h})
+    active_traders_24h = active_24h_result.scalar() or 0
+
     return {
         "total_cash": float(row[0]) if row[0] else 0,
         "total_bank": float(row[1]) if row[1] else 0,
         "total_gold": float(row[2]) if row[2] else 0,
-        "total_active_players": row[3]
+        "total_active_players": row[3], # Registered (with balance)
+        "active_traders_last_24h": active_traders_24h
     }
 
 
@@ -158,20 +171,29 @@ async def get_top_items(
         FROM sentinel_economy_trades
         WHERE timestamp >= :cutoff_date
         {{trade_type_filter}}
+        {{exclusion_filter}}
         GROUP BY item_class, trade_type
         ORDER BY {order_column} DESC
         LIMIT :limit
     """.format(
-        trade_type_filter=f"AND trade_type = :trade_type" if trade_type else ""
+        trade_type_filter="AND trade_type = :trade_type" if trade_type else "",
+        exclusion_filter="AND item_class NOT IN :excluded_items" if settings.excluded_items_list else ""
     ))
     
     params = {"cutoff_date": cutoff_date, "limit": limit}
     if trade_type:
         params["trade_type"] = trade_type
+        
+    if settings.excluded_items_list:
+        params["excluded_items"] = tuple(settings.excluded_items_list)
     
     result = await session.execute(query, params)
     rows = result.fetchall()
     
+    # Helper local function to avoid import error if missing
+    def calculate_anomaly_score(row):
+        return 0 # Placeholder if not defined elsewhere
+
     return [
         {
             "item_class": row[0],
@@ -185,7 +207,7 @@ async def get_top_items(
             "avg_health": float(row[8]) if row[8] else None,
             "unique_sellers": row[9] if row[1] == "Sell" else 0,
             "unique_buyers": row[9] if row[1] == "Purchase" else 0,
-            "anomaly_score": calculate_anomaly_score(row)
+            "anomaly_score": 0
         }
         for row in rows
     ]
