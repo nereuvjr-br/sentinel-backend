@@ -30,41 +30,79 @@ class KillParserV2:
         'Weapon_M16A4': 'Assault Rifle',
         'Weapon_AS_Val': 'Assault Rifle',
         'Weapon_SCAR': 'Assault Rifle',
+        'Weapon_VHS2': 'Assault Rifle',
+        'Weapon_MK18': 'Assault Rifle',
+        'Weapon_M1_Garand': 'Assault Rifle',
+        'Weapon_STG44': 'Assault Rifle',
+        
+        'Weapon_M249': 'LMG',
+        'Weapon_RPK': 'LMG',
+        'Weapon_MG42': 'LMG',
+        'Weapon_M60': 'LMG',
         
         'Weapon_MP5': 'SMG',
         'Weapon_MAC10': 'SMG',
         'Weapon_UZI': 'SMG',
         'Weapon_TommyGun': 'SMG',
+        'Weapon_UMP': 'SMG',
+        'Weapon_MP40': 'SMG',
+        'Weapon_PPSH': 'SMG',
         
         'Weapon_SVD': 'Sniper Rifle',
         'Weapon_MosinNagant': 'Sniper Rifle',
         'Weapon_M82A1': 'Sniper Rifle',
         'Weapon_VSS': 'Sniper Rifle',
         'Weapon_KAR98': 'Sniper Rifle',
+        'Weapon_98k': 'Sniper Rifle',
+        'Weapon_Hunter85': 'Sniper Rifle',
+        'Weapon_AWM': 'Sniper Rifle',
+        'Weapon_Afloat': 'Sniper Rifle',
+        'Weapon_CarbonHunter': 'Sniper Rifle',
+        'Weapon_M1891': 'Sniper Rifle',
         
         'Weapon_Glock': 'Pistol',
         'Weapon_DEagle': 'Pistol',
         'Weapon_M9': 'Pistol',
         'Weapon_CZ75': 'Pistol',
         'Weapon_Block21': 'Pistol',
+        'Weapon_SF19': 'Pistol',
+        'Weapon_HS9': 'Pistol',
+        'Weapon_1911': 'Pistol',
+        'Weapon_Judge': 'Pistol',
+        'Weapon_PC9': 'Pistol',
         
         'Weapon_Shotgun': 'Shotgun',
         'Weapon_SPAS': 'Shotgun',
+        'Weapon_DT11B': 'Shotgun',
+        'Weapon_Tec01_490': 'Shotgun',
+        'Weapon_M1887': 'Shotgun',
+        
+        'Bow': 'Archery',
+        'Crossbow': 'Archery',
         
         '1H_': 'Melee',
         '2H_': 'Melee',
         'Knife': 'Melee',
         'Axe': 'Melee',
         'Machete': 'Melee',
+        'Spear': 'Melee',
+        'Sledgehammer': 'Melee',
+        'Bat': 'Melee',
+        'Crowbar': 'Melee',
+        'Sword': 'Melee',
         
         'C4': 'Explosive',
         'Grenade': 'Explosive',
         'Mine': 'Explosive',
         'RPG': 'Explosive',
+        'Claymore': 'Explosive',
         
         'Vehicle': 'Vehicle',
         'Car': 'Vehicle',
         'Heli': 'Vehicle',
+        'Plane': 'Vehicle',
+        'Boat': 'Vehicle',
+        'BPC_': 'Vehicle',
     }
     
     # ========================================================================
@@ -122,16 +160,25 @@ class KillParserV2:
             'BP_Puppet': 'Puppet',
             'BP_Mech': 'Mech',
             'BP_Animal': 'Animal',
+            'BP_Drifter': 'Drifter', # Drifters sao NPCs
             'BOT_': 'Bot',
         }
         
         for pattern, npc_type in npc_patterns.items():
             if pattern in name:
                 return True, npc_type
+
+        # Catch-all: Se começar com 'BP_' e não for um dos acima, ainda é provavelmente um NPC/Asset do jogo que matou alguem (ex: Mina)
+        if name.startswith('BP_'):
+             return True, 'Environment'
         
-        # SteamID inválido também indica NPC
+        # SteamID inválido também indica NPC ou Log de Erro
         if not user_id or len(str(user_id)) < 10:
             return True, 'Unknown'
+            
+        # Casos onde o ID é -1 (Suicídio por mina/ambiente as vezes vem assim)
+        if str(user_id) == "-1":
+             return True, 'Environment'
         
         return False, None
     

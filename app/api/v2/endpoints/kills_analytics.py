@@ -495,12 +495,37 @@ async def get_global_stats(
         # Precisamos adicionar AND timestamp >= :cutoff
         pass
 
-    # Total Kills
-    q_total = f"SELECT COUNT(*) FROM sentinel_kills {time_filter}"
+    # Total Kills (PvP Only - Strict Filters)
+    # Exclude:
+    # 1. Victim is NPC
+    # 2. Killer is NPC flag (legacy)
+    # 3. Killer Name starts with BP_ (Drifters, Guards)
+    # 4. Killer Name is 'Unknown' (System errors/Environment)
+    # 5. Killer ID is too short OR contains -1 (Environment/Mines)
+    # 6. Killer ID equals Victim ID (Suicides)
+    # 7. Events (Deathmatch/Minigames)
+    base_filters = """
+        WHERE victim_is_npc = FALSE 
+          AND killer_is_npc = FALSE
+          AND killer_name NOT LIKE 'BP_%'
+          AND killer_name != 'Unknown'
+          AND killer_id NOT LIKE '%-1%'
+          AND LENGTH(killer_id) > 5
+          AND killer_id != victim_id
+          AND is_event = FALSE
+    """
+    
+    if hours:
+        q_total = f"SELECT COUNT(*) FROM sentinel_kills {base_filters} AND timestamp >= :cutoff"
+    else:
+        q_total = f"SELECT COUNT(*) FROM sentinel_kills {base_filters}"
+        
     total_kills = (await session.execute(text(q_total), params)).scalar() or 0
 
     # Unique Killers (Active Combatants)
-    q_unique = f"SELECT COUNT(DISTINCT killer_id) FROM sentinel_kills {time_filter}"
+    q_unique = f"SELECT COUNT(DISTINCT killer_id) FROM sentinel_kills {base_filters}"
+    if hours:
+        q_unique += " AND timestamp >= :cutoff"
     unique_players = (await session.execute(text(q_unique), params)).scalar() or 0
 
     # Base filters for Distance queries

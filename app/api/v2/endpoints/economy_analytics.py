@@ -149,14 +149,18 @@ async def get_top_items(
     Retorna os itens mais negociados (comprados ou vendidos).
     Default ordena por VALOR TOTAL movimentado.
     """
-    from sqlalchemy import text
+    from sqlalchemy import text, bindparam
     
     cutoff_date = datetime.utcnow() - timedelta(hours=hours)
     
     # Define a coluna de ordenação
     order_column = "total_value" if sort_by == "total_value" else "total_transactions"
     
-    query = text(f"""
+    # Filters
+    trade_type_filter = "AND trade_type = :trade_type" if trade_type else ""
+    exclusion_filter = "AND item_class NOT IN :excluded_items" if settings.excluded_items_list else ""
+    
+    query_str = f"""
         SELECT 
             item_class,
             trade_type,
@@ -170,24 +174,25 @@ async def get_top_items(
             COUNT(DISTINCT steam_id) as unique_traders
         FROM sentinel_economy_trades
         WHERE timestamp >= :cutoff_date
-        {{trade_type_filter}}
-        {{exclusion_filter}}
+        {trade_type_filter}
+        {exclusion_filter}
         GROUP BY item_class, trade_type
         ORDER BY {order_column} DESC
         LIMIT :limit
-    """.format(
-        trade_type_filter="AND trade_type = :trade_type" if trade_type else "",
-        exclusion_filter="AND item_class NOT IN :excluded_items" if settings.excluded_items_list else ""
-    ))
+    """
+    
+    stmt = text(query_str)
     
     params = {"cutoff_date": cutoff_date, "limit": limit}
+    
     if trade_type:
         params["trade_type"] = trade_type
         
     if settings.excluded_items_list:
-        params["excluded_items"] = tuple(settings.excluded_items_list)
+        stmt = stmt.bindparams(bindparam("excluded_items", expanding=True))
+        params["excluded_items"] = settings.excluded_items_list
     
-    result = await session.execute(query, params)
+    result = await session.execute(stmt, params)
     rows = result.fetchall()
     
     # Helper local function to avoid import error if missing
