@@ -31,9 +31,14 @@ python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --proxy-heade
 PID_API=$!
 
 # 2. Sentinel Daemon
-echo -e "${GREEN}[2/2] Iniciando Log Sentinel...${NC}"
+echo -e "${GREEN}[2/3] Iniciando Log Sentinel...${NC}"
 python sentinel_v2.py &
 PID_SENTINEL=$!
 
+# 3. DB Sync Service
+echo -e "${GREEN}[3/3] Iniciando DB Sync Service...${NC}"
+python sentinel_db_sync.py &
+PID_DBSYNC=$!
+
 # Wait
-wait $PID_API $PID_SENTINEL
+wait $PID_API $PID_SENTINEL $PID_DBSYNC

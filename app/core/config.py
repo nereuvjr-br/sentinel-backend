@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     
     # Business Logic
     EXCLUDED_ITEMS: str = ""
+    RAID_LOG_DELAY_MINUTES: int = 0
+    SCUM_DB_SYNC_MINUTES: int = 15  # Default 15 min
+    SCUM_DB_REMOTE_PATH: str = "SCUM.db"  # Relative to SFTP_PATH if inside SaveFiles, or absolute
+
+    # Evolution API (WhatsApp)
+    EVOLUTION_API_URL: Optional[str] = "http://localhost:8080"
+    EVOLUTION_API_TOKEN: Optional[str] = None
+    EVOLUTION_INSTANCE_NAME: Optional[str] = "Sentinel"
+
 
     @property
     def excluded_items_list(self) -> list[str]:

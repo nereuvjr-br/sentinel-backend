@@ -29,6 +29,7 @@ from app.models.gameplay_v2 import SentinelRaidMinigame, SentinelCrafting
 from app.models.violation_v2 import SentinelViolation
 from app.models.chest_fame_v2 import SentinelChestEvent, SentinelFameEvent
 from app.models.vehicle_v2 import SentinelVehicle
+from app.models.players_registry_v2 import SentinelPlayerRegistry, SentinelNameChange
 
 # Parsers
 from app.services.parsers_v2.admin import AdminParserV2
@@ -43,6 +44,7 @@ from app.services.parsers_v2.vehicle import VehicleParserV2
 
 # Monitoring
 from app.services.monitoring_service import monitoring_service
+from app.services.notification_service import notification_service
 
 class SentinelDaemonV2:
     def __init__(self):
@@ -142,7 +144,8 @@ class SentinelDaemonV2:
                     # List with Attributes for size check
                     file_attrs = sftp.listdir_attr(self.remote_dir)
                     files = [(f.filename, f.st_size) for f in file_attrs if f.filename.endswith('.log')]
-                    files.sort()
+                    # Custom Sort: Priority (Kill > Chat/Login > Others) then Chronological
+                    files.sort(key=self._get_sort_key)
                     
                     async with AsyncSession(engine) as session:
                         for filename, remote_size in files:
@@ -173,6 +176,37 @@ class SentinelDaemonV2:
                 ssh.close()
         
         logger.error("❌ Failed to connect to SFTP after multiple attempts.")
+
+    def _get_sort_key(self, item):
+        fname = item[0]
+        if "kill" in fname: priority = 0      
+        elif "chat" in fname: priority = 1    
+        elif "login" in fname: priority = 1   
+        elif "admin" in fname: priority = 1   
+        elif "gameplay" in fname: priority = 0 # Boost Gameplay priority!
+        else: priority = 2
+        return (priority, fname)
+
+    async def _periodic_health_check(self):
+        """
+        Task periódica que captura snapshots de saúde do banco a cada 5 minutos.
+        """
+        logger.info("🏥 Health Check Task iniciada (intervalo: 5 minutos)")
+        
+        while True:
+            try:
+                await asyncio.sleep(300)  # 5 minutos
+                
+                async with AsyncSession(engine) as session:
+                    snapshot = await monitoring_service.capture_database_health_snapshot(session)
+                    
+                    if not snapshot.is_healthy:
+                        logger.warning(f"⚠️ Problemas de saúde detectados: {snapshot.health_issues}")
+                    else:
+                        logger.info("✅ Sistema saudável")
+                        
+            except Exception as e:
+                logger.error(f"Erro no Health Check: {e}")
 
     async def get_processed_state(self, session, filename):
         stmt = select(SentinelProcessedFile).where(SentinelProcessedFile.filename == filename)
@@ -357,6 +391,23 @@ class SentinelDaemonV2:
                         # 3. Prepare for DB (Strip Timezone -> Naive UTC)
                         model.timestamp = model.timestamp.replace(tzinfo=None)
                     
+                    # --- NOTIFICATIONS ---
+                    if isinstance(model, SentinelRaidMinigame):
+                        try:
+                            # Notifica de forma assíncrona (await) para garantir envio
+                            await notification_service.process_raid_event(model)
+                        except Exception as ne:
+                            logger.error(f"⚠️ Notification Error: {ne}")
+                    # ---------------------
+                    
+                    # --- REGISTRY SYNC (Realtime Name Updates) ---
+                    if isinstance(model, SentinelLogin):
+                        try:
+                            await self._sync_player_from_login(session, model)
+                        except Exception as re:
+                            logger.error(f"Registry Sync Error: {re}")
+                    # ---------------------------------------------
+
                     batch.append(model)
                     new_lines_count += 1
                 except Exception as te:
@@ -457,6 +508,63 @@ class SentinelDaemonV2:
         elif "famepoints" in filename: return ChestFameParserV2.parse_fame
         elif "vehicle" in filename: return VehicleParserV2.parse
         return None
+
+    async def _sync_player_from_login(self, session, login: SentinelLogin):
+        """Atualiza o registro do jogador com base no login (nome atual, last_seen, etc)"""
+        if not login.steam_id: return
+
+        # Buscar jogador existente
+        stmt = select(SentinelPlayerRegistry).where(SentinelPlayerRegistry.steam_id == login.steam_id)
+        result = await session.execute(stmt)
+        player = result.scalar_one_or_none()
+
+        now = datetime.utcnow()
+        if login.timestamp:
+            # Ensure naive UTC
+            ts = login.timestamp.replace(tzinfo=None) if login.timestamp.tzinfo else login.timestamp
+        else:
+            ts = now
+
+        if player:
+            # Update Timestamp
+            if ts > player.last_seen:
+                player.last_seen = ts
+            
+            # Update Name if Changed
+            if login.player_name and login.player_name != player.current_name:
+                # 1. Register Change
+                history = SentinelNameChange(
+                    steam_id=player.steam_id,
+                    old_name=player.current_name,
+                    new_name=login.player_name,
+                    changed_at=ts,
+                    detected_in="Login"
+                )
+                session.add(history)
+                logger.info(f"🔄 Player Name Change: {player.current_name} -> {login.player_name} ({player.steam_id})")
+
+                # 2. Update Current
+                player.current_name = login.player_name
+                player.updated_at = now
+            
+            # Increment Login Count
+            if login.action == "Login":
+                 player.total_logins += 1
+            
+            session.add(player)
+        
+        else:
+            # Create New Player
+            new_player = SentinelPlayerRegistry(
+                steam_id=login.steam_id,
+                current_name=login.player_name or "Unknown",
+                first_seen=ts,
+                last_seen=ts,
+                total_logins=1 if login.action == "Login" else 0,
+                updated_at=now
+            )
+            session.add(new_player)
+            logger.info(f"🆕 New Player Registered: {new_player.current_name} ({new_player.steam_id})")
 
 if __name__ == "__main__":
     daemon = SentinelDaemonV2()

@@ -16,6 +16,7 @@ from app.models.all_models import (
     LogAdmin, LogEconomy, LogVehicle, LogChest, 
     LogGameplay, LogFame
 )
+from app.models.players_registry_v2 import SentinelPlayerRegistry, SentinelNameChange
 
 class SentinelDaemon:
     def __init__(self):
@@ -136,8 +137,61 @@ class SentinelDaemon:
                 
                 if batch_models:
                     session.add_all(batch_models)
+                    
+                    # Update Player Names
+                    for obj in batch_models:
+                         # 1. Standard logs (Login, Chat, etc)
+                         if hasattr(obj, 'steam_id') and hasattr(obj, 'player_name') and obj.steam_id and obj.player_name:
+                             await self._check_update_player_name(session, str(obj.steam_id), str(obj.player_name), filename)
+                         
+                         # 2. Kill logs (Killer and Victim)
+                         if hasattr(obj, 'killer_id') and hasattr(obj, 'killer_name') and obj.killer_id and obj.killer_name:
+                             await self._check_update_player_name(session, str(obj.killer_id), str(obj.killer_name), f"{filename}:killer")
+                         
+                         if hasattr(obj, 'victim_id') and hasattr(obj, 'victim_name') and obj.victim_id and obj.victim_name:
+                             await self._check_update_player_name(session, str(obj.victim_id), str(obj.victim_name), f"{filename}:victim")
+
                     await session.commit()
                     print(f"💾 {len(batch_models)} eventos salvos de {filename}")
+
+    async def _check_update_player_name(self, session, steam_id: str, new_name: str, source: str):
+        try:
+            # Basic sanity check
+            if not new_name or len(new_name) < 2: return
+
+            # imports handled globally or inside method if needed?
+            # Importing globally is better. Assumed added.
+            stmt = select(SentinelPlayerRegistry).where(SentinelPlayerRegistry.steam_id == steam_id)
+            result = await session.execute(stmt)
+            player = result.scalar_one_or_none()
+            
+            if player:
+                if player.current_name != new_name:
+                    # Record name change
+                    change = SentinelNameChange(
+                        steam_id=steam_id,
+                        old_name=player.current_name,
+                        new_name=new_name,
+                        changed_at=datetime.utcnow(),
+                        detected_in=f"log_parser:{source}"
+                    )
+                    session.add(change)
+                    
+                    # Update player
+                    player.current_name = new_name
+                    session.add(player)
+                    print(f"🔄 [Log] Nome atualizado: {change.old_name} -> {new_name}")
+            else:
+                # Create if not exists (Lazy Load)
+                new_player = SentinelPlayerRegistry(
+                    steam_id=steam_id,
+                    current_name=new_name,
+                    first_seen=datetime.utcnow(),
+                    last_seen=datetime.utcnow()
+                )
+                session.add(new_player)
+        except Exception as e:
+            print(f"⚠️ Erro ao atualizar nome do player: {e}")
                 
                 self.offsets_cache[filename] = new_cursor
                 

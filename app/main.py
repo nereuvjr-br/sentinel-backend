@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.api.v1.endpoints import (
     logs, stats, login, violations, admin, economy, 
@@ -27,7 +28,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -50,6 +51,17 @@ app.include_router(stats.router, prefix="/v1/stats", tags=["Statistics & Intelli
 # --- V2 API (New Sentinel Daemon) ---
 from app.api.v2.api import api_router as api_router_v2
 app.include_router(api_router_v2, prefix="/v2")
+
+# --- STATIC FILES (Dashboard) ---
+import os
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/admin", StaticFiles(directory=static_dir, html=True), name="static")
+
+@app.on_event("startup")
+async def startup_event():
+    from app.services.queue_service import notification_queue
+    await notification_queue.start_worker()
 
 @app.get("/health")
 def health_check():

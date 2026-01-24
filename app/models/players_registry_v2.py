@@ -1,7 +1,7 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from sqlmodel import SQLModel, Field, Column
-from sqlalchemy import ARRAY, String
+from sqlalchemy import ARRAY, String, JSON
 
 class SentinelPlayerRegistry(SQLModel, table=True):
     """Registro central de jogadores com histórico de nomes e squads"""
@@ -31,6 +31,12 @@ class SentinelPlayerRegistry(SQLModel, table=True):
     
     # Metadados
     notes: Optional[str] = None
+    phone_number: Optional[str] = Field(default=None, max_length=50)
+    # Subscription & Plan
+    plan_tier: str = Field(default="free", max_length=20)  # free, premium
+    plan_expires_at: Optional[datetime] = Field(default=None)
+    notification_settings: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 

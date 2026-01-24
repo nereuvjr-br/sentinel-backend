@@ -16,6 +16,9 @@ from app.models.gameplay_v2 import SentinelRaidMinigame, SentinelCrafting, Senti
 from app.models.violation_v2 import SentinelViolation
 from app.models.chest_fame_v2 import SentinelChestEvent, SentinelFameEvent
 from app.models.system_v2 import SentinelProcessedFile
+from app.models.clan_v2 import SentinelClan, SentinelClanMember
+from app.models.players_registry_v2 import SentinelPlayerRegistry
+from app.models.verification import SentinelVerificationCode
 from app.core.config import settings
 
 # Usando Sync Engine para DDL simples

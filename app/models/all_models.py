@@ -3,6 +3,9 @@ from typing import Optional, List
 from sqlmodel import SQLModel, Field, Column, JSON
 from decimal import Decimal
 
+# Import notification model
+from app.models.notification_v2 import SentinelNotificationLog
+
 # --- CORE EVENTS ---
 
 class LogChat(SQLModel, table=True):

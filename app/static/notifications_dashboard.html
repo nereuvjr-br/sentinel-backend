@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Notificações - Sentinel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            font-size: 1.1rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(59, 130, 246, 0.5);
+            box-shadow: 0 10px 30px rgba(59, 130, 246, 0.2);
+        }
+
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-change {
+            font-size: 0.875rem;
+            color: #10b981;
+        }
+
+        .stat-change.negative {
+            color: #ef4444;
+        }
+
+        .filters {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .filters h3 {
+            margin-bottom: 1rem;
+            color: #e2e8f0;
+        }
+
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .filter-group label {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .filter-group select,
+        .filter-group input {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            color: #e2e8f0;
+            font-size: 0.875rem;
+            transition: all 0.3s ease;
+        }
+
+        .filter-group select:focus,
+        .filter-group input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            border: none;
+            border-radius: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 1.5rem;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(59, 130, 246, 0.3);
+        }
+
+        .table-container {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-radius: 1rem;
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: rgba(15, 23, 42, 0.6);
+        }
+
+        th {
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: #94a3b8;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            padding: 1rem;
+            border-top: 1px solid rgba(148, 163, 184, 0.1);
+        }
+
+        tbody tr {
+            transition: background 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .badge-error {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .badge-pending {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(251, 191, 36, 0.3);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #94a3b8;
+        }
+
+        .spinner {
+            border: 3px solid rgba(148, 163, 184, 0.2);
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .message-preview {
+            max-width: 300px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #94a3b8;
+            font-size: 0.875rem;
+        }
+
+        .timestamp {
+            color: #64748b;
+            font-size: 0.875rem;
+        }
+
+        .error-message {
+            color: #ef4444;
+            font-size: 0.875rem;
+            font-style: italic;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>📨 Dashboard de Notificações</h1>
+            <p class="subtitle">Monitoramento em tempo real de notificações WhatsApp</p>
+        </header>
+
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+                <div class="stat-label">Total Enviadas</div>
+                <div class="stat-value" id="totalSent">-</div>
+                <div class="stat-change">Últimas 24h</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Taxa de Sucesso</div>
+                <div class="stat-value" id="successRate">-</div>
+                <div class="stat-change" id="successChange">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Enviadas com Sucesso</div>
+                <div class="stat-value" style="color: #10b981;" id="successCount">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Falhas</div>
+                <div class="stat-value" style="color: #ef4444;" id="failedCount">-</div>
+            </div>
+        </div>
+
+        <div class="filters">
+            <h3>🔍 Filtros</h3>
+            <div class="filter-grid">
+                <div class="filter-group">
+                    <label>Status</label>
+                    <select id="filterStatus">
+                        <option value="">Todos</option>
+                        <option value="success">Sucesso</option>
+                        <option value="failed">Falha</option>
+                        <option value="pending">Pendente</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Tipo de Notificação</label>
+                    <select id="filterType">
+                        <option value="">Todos</option>
+                        <option value="raid_alert">Alerta de Raid</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Tipo de Destinatário</label>
+                    <select id="filterRecipientType">
+                        <option value="">Todos</option>
+                        <option value="player">Jogador</option>
+                        <option value="clan_group">Grupo do Clã</option>
+                        <option value="clan_member">Membro do Clã</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Telefone/Steam ID</label>
+                    <input type="text" id="filterSearch" placeholder="Buscar...">
+                </div>
+            </div>
+            <button class="btn" onclick="loadNotifications()">Aplicar Filtros</button>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Data/Hora</th>
+                        <th>Status</th>
+                        <th>Tipo</th>
+                        <th>Destinatário</th>
+                        <th>Telefone</th>
+                        <th>Mensagem</th>
+                        <th>Erro</th>
+                    </tr>
+                </thead>
+                <tbody id="notificationsTable">
+                    <tr>
+                        <td colspan="7" class="loading">
+                            <div class="spinner"></div>
+                            Carregando notificações...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/v2/notifications';
+
+        async function loadStats() {
+            try {
+                const response = await fetch(`${API_BASE}/stats?hours=24`);
+                const data = await response.json();
+
+                document.getElementById('totalSent').textContent = data.total_notifications.toLocaleString();
+                document.getElementById('successRate').textContent = data.success_rate + '%';
+                document.getElementById('successCount').textContent = data.success_count.toLocaleString();
+                document.getElementById('failedCount').textContent = data.failed_count.toLocaleString();
+
+                const changeEl = document.getElementById('successChange');
+                if (data.success_rate >= 95) {
+                    changeEl.textContent = '✓ Excelente';
+                    changeEl.className = 'stat-change';
+                } else if (data.success_rate >= 80) {
+                    changeEl.textContent = '⚠ Bom';
+                    changeEl.className = 'stat-change';
+                } else {
+                    changeEl.textContent = '✗ Atenção necessária';
+                    changeEl.className = 'stat-change negative';
+                }
+            } catch (error) {
+                console.error('Erro ao carregar estatísticas:', error);
+            }
+        }
+
+        async function loadNotifications() {
+            const status = document.getElementById('filterStatus').value;
+            const type = document.getElementById('filterType').value;
+            const recipientType = document.getElementById('filterRecipientType').value;
+            const search = document.getElementById('filterSearch').value;
+
+            const params = new URLSearchParams();
+            if (status) params.append('status', status);
+            if (type) params.append('notification_type', type);
+            if (recipientType) params.append('recipient_type', recipientType);
+            params.append('limit', '100');
+
+            try {
+                const response = await fetch(`${API_BASE}?${params}`);
+                const data = await response.json();
+
+                const tbody = document.getElementById('notificationsTable');
+                tbody.innerHTML = '';
+
+                if (data.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #94a3b8;">Nenhuma notificação encontrada</td></tr>';
+                    return;
+                }
+
+                data.data.forEach(notif => {
+                    const row = document.createElement('tr');
+
+                    const statusBadge = notif.status === 'success'
+                        ? '<span class="badge badge-success">Sucesso</span>'
+                        : notif.status === 'failed'
+                            ? '<span class="badge badge-error">Falha</span>'
+                            : '<span class="badge badge-pending">Pendente</span>';
+
+                    const timestamp = new Date(notif.sent_at).toLocaleString('pt-BR');
+                    const messagePreview = notif.message_content.substring(0, 50) + '...';
+
+                    row.innerHTML = `
+                        <td class="timestamp">${timestamp}</td>
+                        <td>${statusBadge}</td>
+                        <td>${notif.notification_type}</td>
+                        <td>${notif.recipient_name || '-'}</td>
+                        <td>${notif.recipient_phone}</td>
+                        <td class="message-preview" title="${notif.message_content}">${messagePreview}</td>
+                        <td class="error-message">${notif.error_message || '-'}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('Erro ao carregar notificações:', error);
+                const tbody = document.getElementById('notificationsTable');
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #ef4444;">Erro ao carregar dados. Verifique se a API está rodando.</td></tr>';
+            }
+        }
+
+        // Carregar dados ao iniciar
+        loadStats();
+        loadNotifications();
+
+        // Atualizar a cada 30 segundos
+        setInterval(() => {
+            loadStats();
+            loadNotifications();
+        }, 30000);
+    </script>
+</body>
+
+</html>

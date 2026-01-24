@@ -190,3 +190,129 @@ class LogParser:
             amount=float(data["amount"]),
             reason=data["reason"]
         )
+
+    @staticmethod
+    def parse_timestamp(ts_str: str) -> datetime:
+        try:
+            return datetime.strptime(ts_str, LogParser.TIMESTAMP_FMT)
+        except:
+            return datetime.utcnow()
+
+    @staticmethod
+    def process_line(filename: str, line: str) -> Optional[SQLModel]:
+        line = line.strip()
+        if not line: return None
+        
+        fname = filename.lower()
+        
+        if "login" in fname:
+            return LogParser._parse_login(line)
+        elif "admin" in fname:
+            return LogParser._parse_admin(line)
+        elif "economy" in fname:
+            return LogParser._parse_economy(line)
+        elif "kill" in fname:
+            return LogParser._parse_kill(line)
+        elif "chat" in fname:
+            return LogParser._parse_chat(line)
+        elif "violation" in fname:
+            return LogParser._parse_violation(line)
+        elif "gameplay" in fname:
+            return LogParser._parse_gameplay(line)
+        elif "vehicle" in fname:
+            return LogParser._parse_vehicle(line)
+        elif "chest" in fname:
+            return LogParser._parse_chest(line)
+        elif "fame" in fname:
+            return LogParser._parse_fame(line)
+            
+        return None
+
+    @staticmethod
+    def _parse_login(line: str) -> Optional[LogLogin]:
+        match = LogParser.REGEX_LOGIN.search(line)
+        if not match: return None
+        
+        data = match.groupdict()
+        l_type = "Standard"
+        if "(as drone)" in line: l_type = "Drone"
+        
+        loc = None
+        if data.get('x'):
+             loc = {"x": float(data['x']), "y": float(data['y']), "z": float(data['z'])}
+
+        return LogLogin(
+             timestamp=LogParser.parse_timestamp(data["timestamp"]),
+             ip_address=data["ip"],
+             steam_id=data["steam_id"],
+             player_name=data["name"],
+             game_id=int(data["game_id"]),
+             action=data["action"].title(), 
+             login_type=l_type,
+             location=loc
+        )
+
+    @staticmethod
+    def _parse_kill(line: str) -> Optional[LogKill]:
+        match = LogParser.REGEX_KILL_JSON.search(line)
+        if not match: return None
+        
+        try:
+            data = match.groupdict()
+            json_str = data["json_data"]
+            # Fix Common JSON Scum Weirdness if any (usually ok in simplified logs)
+            obj = json.loads(json_str)
+            
+            # Extract info from JSON
+            # Structure usually: {"Killer": {...}, "Victim": {...}, "Weapon": "..."}
+            # We map to LogKill model
+            
+            killer = obj.get("Killer", {})
+            victim = obj.get("Victim", {})
+            
+            return LogKill(
+                timestamp=LogParser.parse_timestamp(data["timestamp"]),
+                killer_name=killer.get("Name"),
+                killer_id=killer.get("UserId"),
+                killer_loc={"x": killer.get("ServerLocation", {}).get("X"), "y": killer.get("ServerLocation", {}).get("Y"), "z": killer.get("ServerLocation", {}).get("Z")},
+                victim_name=victim.get("Name"),
+                victim_id=victim.get("UserId"),
+                victim_loc={"x": victim.get("ServerLocation", {}).get("X"), "y": victim.get("ServerLocation", {}).get("Y"), "z": victim.get("ServerLocation", {}).get("Z")},
+                weapon=obj.get("Weapon", "Unknown"),
+                distance=float(obj.get("KillDistance", 0.0)),
+                is_event=obj.get("InGameEvent", False)
+            )
+        except:
+            return None
+
+    @staticmethod
+    def _parse_chat(line: str) -> Optional[LogChat]:
+        match = LogParser.REGEX_CHAT.search(line)
+        if not match: return None
+        data = match.groupdict()
+        
+        return LogChat(
+            timestamp=LogParser.parse_timestamp(data["timestamp"]),
+            steam_id=data["steam_id"],
+            player_name=data["name"],
+            game_id=int(data["game_id"]),
+            channel=data["channel"].strip(),
+            message=data["message"]
+        )
+
+    @staticmethod
+    def _parse_violation(line: str) -> Optional[LogViolation]:
+        match = LogParser.REGEX_VIOLATION.search(line)
+        if not match: return None
+        data = match.groupdict()
+        
+        return LogViolation(
+            timestamp=LogParser.parse_timestamp(data["timestamp"]),
+            type=data["type"],
+            details=data["details"],
+            suspicious_count=int(data["suspicious"]),
+            ban_count=int(data["ban"]),
+            player_name=data["name"],
+            game_id=int(data["game_id"]),
+            steam_id=data["steam_id"]
+        )
